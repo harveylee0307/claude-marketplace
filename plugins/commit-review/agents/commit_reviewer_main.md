@@ -29,29 +29,79 @@ for k in keys:
 ```
 
 ```bash
-# 偵測設定檔與變更檔案類型
+# 偵測設定檔與變更檔案類型（排除 lock files）
 ls tsconfig*.json tailwind.config* .eslintrc* eslint.config* nuxt.config* next.config* vite.config* Dockerfile* docker-compose* .github/workflows/*.yml .gitlab-ci.yml Makefile 2>/dev/null
 echo "===CHANGED_FILES==="
-git diff --staged --name-only 2>/dev/null || git diff HEAD~1 HEAD --name-only 2>/dev/null
+git diff --staged --name-only -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' ':!*.lock' ':!composer.lock' ':!Gemfile.lock' 2>/dev/null || \
+git diff HEAD~1 HEAD --name-only -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' ':!*.lock' ':!composer.lock' ':!Gemfile.lock' 2>/dev/null
 ```
 
 ```bash
-# 判斷變更模式並取得 diff
+# 判斷變更模式，取得 stat 與 diff 行數（排除 lock files）
 STAGED=$(git diff --staged --stat 2>/dev/null)
 if [ -n "$STAGED" ]; then
   echo "===MODE:Staged==="
-  git diff --staged --stat
+  git diff --staged --stat \
+    -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' \
+       ':!*.lock' ':!composer.lock' ':!Gemfile.lock'
+  echo "===DIFF_LINES==="
+  git diff --staged \
+    -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' \
+       ':!*.lock' ':!composer.lock' ':!Gemfile.lock' | wc -l | tr -d ' '
   echo "===DIFF_START==="
-  git diff --staged
+  git diff --staged \
+    -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' \
+       ':!*.lock' ':!composer.lock' ':!Gemfile.lock'
 else
   echo "===MODE:LastCommit==="
-  git log -1 --pretty=format:"commit %H%ndate: %ci%nmessage: %s"
+  git log -1 --pretty=format:"commit %H%nauthor: %an%ndate: %ci%nmessage: %s"
   echo ""
-  git diff HEAD~1 HEAD --stat
+  git diff HEAD~1 HEAD --stat \
+    -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' \
+       ':!*.lock' ':!composer.lock' ':!Gemfile.lock'
+  echo "===DIFF_LINES==="
+  git diff HEAD~1 HEAD \
+    -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' \
+       ':!*.lock' ':!composer.lock' ':!Gemfile.lock' | wc -l | tr -d ' '
   echo "===DIFF_START==="
-  git diff HEAD~1 HEAD
+  git diff HEAD~1 HEAD \
+    -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' \
+       ':!*.lock' ':!composer.lock' ':!Gemfile.lock'
 fi
 ```
+
+---
+
+### Step 1.5 — Diff 規模評估
+
+讀取 `===DIFF_LINES===` 後的數值，依以下規則決定是否繼續：
+
+| Diff 行數 | 處理方式 |
+|-----------|---------|
+| < 300 行 | 正常繼續，不提示 |
+| 300–800 行 | 繼續，在最終報告摘要加註：`⚠️ Diff 規模中等（N 行），部分細節可能未完整審查` |
+| > 800 行 | **暫停執行**，輸出以下訊息，等待使用者指示後再繼續 |
+
+**> 800 行時的暫停訊息**（從 `--stat` 輸出列出前 5 個最大檔案）：
+
+```
+⚠️ Diff 規模過大（N 行）
+
+超過建議閾值（800 行），強制審查可能遺漏細節。
+
+最大的變更檔案：
+  {從 --stat 列出前 5 個行數最多的檔案}
+
+請選擇：
+  A. 繼續 — 對完整 diff 進行審查（準確度可能下降）
+  B. 縮小範圍 — 告訴我要審查哪些檔案或目錄
+  C. 只看高風險 — 跳過 Should Fix 與 Nitpick，聚焦 Critical / Must Fix
+```
+
+使用者回覆後：
+- **A / 繼續**：執行完整審查，在報告開頭加註規模警告
+- **B / 指定範圍**：只對使用者指定的路徑重新取得 diff，再繼續 Step 2
+- **C / 只看高風險**：執行完整審查，但彙整時只輸出 🚨 Critical 與 🔴 Must Fix
 
 ---
 
@@ -101,10 +151,10 @@ fi
 {Staged / Last Commit}（commit hash: {7 碼}，message: {訊息}）
 
 ### 異動統計
-{git diff --stat 的完整輸出}
+{git diff --stat 的完整輸出（已排除 lock files）}
 
 ### 完整 Diff
-{git diff 的完整輸出}
+{git diff 的完整輸出（已排除 lock files）}
 ```
 
 **必須將 general + 領域 agent 以並行方式同時派發**（單一訊息多個 Agent tool call）。
