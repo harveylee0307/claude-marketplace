@@ -80,11 +80,11 @@ fi
 
 讀取 `===DIFF_LINES===` 後的數值，依以下規則決定是否繼續：
 
-| Diff 行數 | 處理方式 |
-|-----------|---------|
-| < 300 行 | 正常繼續，不提示 |
-| 300–800 行 | 繼續，在最終報告摘要加註：`⚠️ Diff 規模中等（N 行），部分細節可能未完整審查` |
-| > 800 行 | **暫停執行**，輸出以下訊息，等待使用者指示後再繼續 |
+| Diff 行數  | 處理方式                                                                     |
+| ---------- | ---------------------------------------------------------------------------- |
+| < 300 行   | 正常繼續，不提示                                                             |
+| 300-800 行 | 繼續，在最終報告摘要加註：`⚠️ Diff 規模中等（N 行），部分細節可能未完整審查` |
+| > 800 行   | **暫停執行**，輸出以下訊息，等待使用者指示後再繼續                           |
 
 **> 800 行時的暫停訊息**（從 `--stat` 輸出列出前 5 個最大檔案）：
 
@@ -103,6 +103,7 @@ fi
 ```
 
 使用者回覆後：
+
 - **A / 繼續**：執行完整審查，在報告開頭加註規模警告
 - **B / 指定範圍**：只對使用者指定的路徑重新取得 diff，再繼續 Step 2
 - **C / 只看高風險**：執行完整審查，但彙整時只輸出 🚨 Critical 與 🔴 Must Fix
@@ -117,15 +118,15 @@ fi
 
 #### 領域 agent 派發規則（需同時滿足依賴條件 AND 檔案類型條件）
 
-| 領域 agent | 依賴條件 | 檔案類型條件（CHANGED_FILES 需含） |
-|-----------|---------|----------------------------------|
-| `commit-reviewer-vue2` | vue@2.x | `.vue` |
-| `commit-reviewer-vue3` | vue@3.x / nuxt@3.x | `.vue` 或 `nuxt.config.*` |
-| `commit-reviewer-react` | react / next | `.tsx` / `.jsx` 或 `next.config.*` |
-| `commit-reviewer-angular` | @angular/core | `.component.ts` / `.module.ts` / `.service.ts` |
-| `commit-reviewer-node` | express / @nestjs/core / fastify / koa | 路徑含 `routes/` `controllers/` `services/` `middleware/` `api/` 的 `.ts`/`.js` |
-| `commit-reviewer-infra` | 無（檔案類型即可觸發） | `.sh` / `Dockerfile*` / `.yml`（CI 路徑）/ `Makefile` / `.env*` |
-| `commit-reviewer-common` | svelte / astro | `.svelte` / `.astro` |
+| 領域 agent                | 依賴條件                               | 檔案類型條件（CHANGED_FILES 需含）                                              |
+| ------------------------- | -------------------------------------- | ------------------------------------------------------------------------------- |
+| `commit-reviewer-vue2`    | vue@2.x                                | `.vue`                                                                          |
+| `commit-reviewer-vue3`    | vue@3.x / nuxt@3.x                     | `.vue` 或 `nuxt.config.*`                                                       |
+| `commit-reviewer-react`   | react / next                           | `.tsx` / `.jsx` 或 `next.config.*`                                              |
+| `commit-reviewer-angular` | @angular/core                          | `.component.ts` / `.module.ts` / `.service.ts`                                  |
+| `commit-reviewer-node`    | express / @nestjs/core / fastify / koa | 路徑含 `routes/` `controllers/` `services/` `middleware/` `api/` 的 `.ts`/`.js` |
+| `commit-reviewer-infra`   | 無（檔案類型即可觸發）                 | `.sh` / `Dockerfile*` / `.yml`（CI 路徑）/ `Makefile` / `.env*`                 |
+| `commit-reviewer-common`  | svelte / astro                         | `.svelte` / `.astro`                                                            |
 
 > 若依賴條件符合但 CHANGED_FILES 內沒有對應副檔名，**不派發**該 agent，避免無效審查。
 
@@ -284,6 +285,7 @@ done
 ```
 
 每個 finding 格式：
+
 ```
 #### {編號}. [{分類}] 問題標題
 📍 `檔案:行號`

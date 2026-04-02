@@ -10,10 +10,13 @@ tools: Bash, Read, Glob
 
 ---
 
-### Step 1 — 讀取變更檔案
+### Step 1 — 使用主控提供的內容
 
-從主控提供的 diff 中識別有實質邏輯變更的檔案，用 Read 讀取完整內容。
-排除：`package-lock.json`、`yarn.lock`、`pnpm-lock.yaml`、`*.min.js`、自動生成的 `*.d.ts`
+主控已預讀變更檔案並提供完整 diff，直接使用主控 prompt 中的內容：
+- `### 本域相關 Diff`：完整 diff
+- `### 預讀檔案內容`：所有變更檔案的完整內容
+
+僅在需要查看 **import 來源、型別定義等鄰近未提供的檔案** 時，才使用 Read / Glob。
 
 若主控未提供 diff（直接被使用者召喚），則自行取得：
 ```bash
