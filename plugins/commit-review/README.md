@@ -35,6 +35,34 @@
 | 🟡 Should Fix | 缺少測試、可維護性問題、不佳實踐 | 建議修正 |
 | 🟢 Nitpick | 命名微調、風格偏好、小優化 | 可選 |
 
+## 與類似工具的差異
+
+### vs `/simplify`（內建）
+
+| 面向 | `commit-review` | `/simplify` |
+|------|-----------------|-------------|
+| **目的** | 輸出問題報告，由你決定如何處理 | 找到問題後**直接修改程式碼** |
+| **技術棧感知** | 有，依框架派不同 agent | 無，通用邏輯 |
+| **審查角度** | 安全、邏輯、型別、A11y、測試、Breaking change | 重用性、code quality、效能 |
+| **輸出** | Severity badge 報告 + Merge 建議 | 自動 fix + 簡短摘要 |
+| **適用時機** | commit 前想看問題清單，自己決定修不修 | 寫完想讓 AI 直接清理 |
+
+兩者互補，建議搭配使用：先 `/simplify` 清理 → 再 `/commit-review` 做最終品質把關。
+
+### vs `code-review-graph`（第三方 MCP）
+
+| 面向 | `commit-review` | `code-review-graph` |
+|------|-----------------|---------------------|
+| **輸入** | `git diff`（只看本次變更） | codebase 依賴圖（Tree-sitter 解析） |
+| **範圍** | diff 內的檔案 | 變更 + 所有受影響的下游檔案（blast radius） |
+| **審查深度** | 程式碼品質（安全、邏輯、命名、A11y） | 影響範圍分析、執行流追蹤 |
+| **啟動成本** | 零設定，直接跑 | 需先 `build`，首次掃描較慢 |
+| **核心問題** | 「**這段 code 寫得好不好？**」 | 「**改這裡，還有哪些地方會壞？**」 |
+
+兩者同樣互補：`code-review-graph` 分析影響範圍 → `commit-review` 審查 diff 品質。
+
+---
+
 ## branch-log agent
 
 同 plugin 內附帶 `branch-log` agent，用於彙整整個 branch 的多 commit 變更，產出交接文件或工作日誌（≠ commit review）。
