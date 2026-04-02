@@ -1,0 +1,18 @@
+{
+  "name": "harveylee-claude-marketplace",
+  "owner": "harveylee",
+  "description": "harveylee's personal Claude Code plugin marketplace",
+  "version": "0.1.0",
+  "plugins": [
+    {
+      "name": "commit-review",
+      "description": "Git commit / staged changes code review，多框架並行分析",
+      "source": "./plugins/commit-review"
+    },
+    {
+      "name": "socratic-mentor",
+      "description": "蘇格拉底式學習引導，含開發引導、週回顧、源碼閱讀五種模式",
+      "source": "./plugins/socratic-mentor"
+    }
+  ]
+}

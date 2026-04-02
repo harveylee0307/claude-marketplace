@@ -1,0 +1,6 @@
+{
+  "name": "commit-review",
+  "version": "0.1.0",
+  "description": "Git commit / staged changes code review，多框架並行分析",
+  "author": { "name": "harveylee" }
+}
