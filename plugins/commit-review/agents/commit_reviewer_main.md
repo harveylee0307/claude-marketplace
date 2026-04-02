@@ -29,11 +29,15 @@ for k in keys:
 ```
 
 ```bash
-# 偵測設定檔與變更檔案類型（排除 lock files）
+# 偵測設定檔與變更檔案清單（排除 lock files）
 ls tsconfig*.json tailwind.config* .eslintrc* eslint.config* nuxt.config* next.config* vite.config* Dockerfile* docker-compose* .github/workflows/*.yml .gitlab-ci.yml Makefile 2>/dev/null
 echo "===CHANGED_FILES==="
-git diff --staged --name-only -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' ':!*.lock' ':!composer.lock' ':!Gemfile.lock' 2>/dev/null || \
-git diff HEAD~1 HEAD --name-only -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' ':!*.lock' ':!composer.lock' ':!Gemfile.lock' 2>/dev/null
+git diff --staged --name-only \
+  -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' \
+     ':!*.lock' ':!composer.lock' ':!Gemfile.lock' 2>/dev/null || \
+git diff HEAD~1 HEAD --name-only \
+  -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' \
+     ':!*.lock' ':!composer.lock' ':!Gemfile.lock' 2>/dev/null
 ```
 
 ```bash
@@ -107,35 +111,85 @@ fi
 
 ### Step 2 — 分析變更範圍，決定派發策略
 
-根據偵測結果分析：
-
-1. **依賴偵測**：從 `DEP:` 前綴判斷框架
-2. **檔案類型**：從變更檔案副檔名判斷涉及的領域
-3. **設定檔**：補充判斷依據
-
-#### 派發規則
+根據偵測結果分析依賴與變更檔案類型，決定派發哪些 agent。
 
 **`commit-reviewer-general` 永遠派發**，負責通用工程審查。
 
-依據偵測結果，**額外**派發 0～N 個領域 agent（可並行多個）：
+#### 領域 agent 派發規則（需同時滿足依賴條件 AND 檔案類型條件）
 
-| 偵測條件 | 領域 agent |
-|---------|-----------|
-| vue@2.x | `commit-reviewer-vue2` |
-| vue@3.x / nuxt@3.x | `commit-reviewer-vue3` |
-| react / next | `commit-reviewer-react` |
-| @angular/core | `commit-reviewer-angular` |
-| express / @nestjs/core / fastify / koa | `commit-reviewer-node` |
-| 變更含 `.sh` / `Dockerfile*` / `.yml`(CI) / `Makefile` / `.env*` | `commit-reviewer-infra` |
-| svelte / astro / 其他前端框架 | `commit-reviewer-common` |
+| 領域 agent | 依賴條件 | 檔案類型條件（CHANGED_FILES 需含） |
+|-----------|---------|----------------------------------|
+| `commit-reviewer-vue2` | vue@2.x | `.vue` |
+| `commit-reviewer-vue3` | vue@3.x / nuxt@3.x | `.vue` 或 `nuxt.config.*` |
+| `commit-reviewer-react` | react / next | `.tsx` / `.jsx` 或 `next.config.*` |
+| `commit-reviewer-angular` | @angular/core | `.component.ts` / `.module.ts` / `.service.ts` |
+| `commit-reviewer-node` | express / @nestjs/core / fastify / koa | 路徑含 `routes/` `controllers/` `services/` `middleware/` `api/` 的 `.ts`/`.js` |
+| `commit-reviewer-infra` | 無（檔案類型即可觸發） | `.sh` / `Dockerfile*` / `.yml`（CI 路徑）/ `Makefile` / `.env*` |
+| `commit-reviewer-common` | svelte / astro | `.svelte` / `.astro` |
 
-**混合變更範例**：改了 Vue 元件 + API route + Dockerfile → 同時派 general + vue3 + node + infra
+> 若依賴條件符合但 CHANGED_FILES 內沒有對應副檔名，**不派發**該 agent，避免無效審查。
+
+---
+
+### Step 2.5 — 生成域別 Diff 與預讀變更檔案
+
+執行以下 Bash，**同時**取得各域別過濾 diff 與變更檔案內容：
+
+```bash
+# 判斷 diff 指令基底
+STAGED=$(git diff --staged --stat 2>/dev/null)
+[ -n "$STAGED" ] && DCMD="git diff --staged" || DCMD="git diff HEAD~1 HEAD"
+EXCL="':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' ':!*.lock' ':!composer.lock' ':!Gemfile.lock'"
+
+# Vue 域別 diff（.vue + nuxt/vite config）
+echo "===DOMAIN_DIFF:vue==="
+eval "$DCMD -- '*.vue' 'nuxt.config.*' 'vite.config.*' $EXCL" 2>/dev/null
+
+# React 域別 diff（.tsx/.jsx + next config）
+echo "===DOMAIN_DIFF:react==="
+eval "$DCMD -- '*.tsx' '*.jsx' 'next.config.*' $EXCL" 2>/dev/null
+
+# Angular 域別 diff（*.component/module/service/directive/pipe/guard）
+echo "===DOMAIN_DIFF:angular==="
+eval "$DCMD -- '*.component.ts' '*.module.ts' '*.service.ts' '*.directive.ts' '*.pipe.ts' '*.guard.ts' '*.interceptor.ts' $EXCL" 2>/dev/null
+
+# Node 域別 diff（server-side 路徑）
+echo "===DOMAIN_DIFF:node==="
+eval "$DCMD -- 'src/routes/**' 'src/controllers/**' 'src/services/**' 'src/middleware/**' 'src/api/**' 'routes/**' 'controllers/**' 'api/**' 'server/**' $EXCL" 2>/dev/null
+
+# Infra 域別 diff
+echo "===DOMAIN_DIFF:infra==="
+eval "$DCMD -- '*.sh' 'Dockerfile*' 'docker-compose*' '.github/**' '.gitlab-ci.yml' 'Makefile' '*.conf' '.env*' $EXCL" 2>/dev/null
+
+# Svelte/Astro 域別 diff
+echo "===DOMAIN_DIFF:common==="
+eval "$DCMD -- '*.svelte' '*.astro' $EXCL" 2>/dev/null
+```
+
+```bash
+# 預讀所有變更檔案內容（< 30KB，排除生成/二進位檔）
+STAGED=$(git diff --staged --stat 2>/dev/null)
+[ -n "$STAGED" ] && FCMD="git diff --staged --name-only" || FCMD="git diff HEAD~1 HEAD --name-only"
+eval "$FCMD -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' ':!*.lock' ':!*.min.js' ':!*.d.ts'" 2>/dev/null | \
+while IFS= read -r f; do
+  [ -f "$f" ] || continue
+  SIZE=$(wc -c < "$f" 2>/dev/null || echo 99999)
+  if [ "$SIZE" -lt 30720 ]; then
+    printf "\n===FILE_START:%s===\n" "$f"
+    cat "$f"
+    printf "\n===FILE_END===\n"
+  else
+    printf "\n===FILE_SKIP:%s (%d bytes, 超過 30KB)===\n" "$f" "$SIZE"
+  fi
+done
+```
 
 ---
 
 ### Step 3 — 組裝標準化 prompt 並派發
 
-所有子 agent 收到相同的脈絡區塊，使用以下結構：
+**general agent** 收到完整 diff；**領域 agent** 只收對應域別 diff。
+所有 agent 都收到預讀的檔案內容，**優先使用已提供的內容，不需重複 Read 已有的檔案**。
 
 ```
 ## 審查任務
@@ -153,11 +207,18 @@ fi
 ### 異動統計
 {git diff --stat 的完整輸出（已排除 lock files）}
 
-### 完整 Diff
-{git diff 的完整輸出（已排除 lock files）}
+### 本域相關 Diff
+{general agent 填入完整 diff；領域 agent 填入對應 ===DOMAIN_DIFF:{domain}=== 的內容}
+若此區塊為空，代表本次變更無本域相關檔案，請直接回傳「— 無域內變更」，不需繼續分析。
+
+### 預讀檔案內容
+{===FILE_START:path=== 至 ===FILE_END=== 之間的內容，僅含與本域相關的檔案}
+優先使用此處內容進行分析，僅在需要查看未提供的鄰近檔案（import 來源、型別定義）時才使用 Read tool。
 ```
 
 **必須將 general + 領域 agent 以並行方式同時派發**（單一訊息多個 Agent tool call）。
+
+> **早期中止**：領域 agent 收到空的「本域相關 Diff」時，立即回傳「— 無域內變更」，不執行任何分析，節省 token。
 
 ---
 
@@ -165,10 +226,11 @@ fi
 
 收到所有子 agent 結果後，彙整為統一報告：
 
-1. 合併所有 findings，按 severity 重新分組（🚨 → 🔴 → 🟡 → 🟢）
-2. 相同問題去重（general 與領域 agent 可能重複發現同一問題）
-3. 計算各 severity 數量，填入摘要表
-4. 判定 Merge 建議：有 🚨 或 🔴 → ⛔；僅 🟡 → ⚠️；僅 🟢 或無問題 → ✅
+1. 忽略回傳「— 無域內變更」的 agent
+2. 合併所有 findings，按 severity 重新分組（🚨 → 🔴 → 🟡 → 🟢）
+3. 相同問題去重（general 與領域 agent 可能重複發現同一問題）
+4. 計算各 severity 數量，填入摘要表
+5. 判定 Merge 建議：有 🚨 或 🔴 → ⛔；僅 🟡 → ⚠️；僅 🟢 或無問題 → ✅
 
 #### 最終輸出模板
 
