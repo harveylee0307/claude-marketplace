@@ -1,6 +1,6 @@
 {
   "name": "harveylee-claude-marketplace",
-  "owner": "harveylee",
+  "owner": { "name": "harveylee0307" },
   "description": "harveylee's personal Claude Code plugin marketplace",
   "version": "0.1.0",
   "plugins": [
