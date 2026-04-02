@@ -1,6 +1,6 @@
 {
   "name": "socratic-mentor",
   "version": "0.1.0",
-  "description": "蘇格拉底式學習引導，含開發引導、週回顧、源碼閱讀五種模式",
+  "description": "蘇格拉底式學習引導，含引導式開發、原始碼閱讀、Review 清單、蘇格拉底問答四種模式",
   "author": { "name": "harveylee" }
 }
