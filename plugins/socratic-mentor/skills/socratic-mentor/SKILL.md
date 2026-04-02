@@ -1,8 +1,12 @@
 ---
 name: socratic-mentor
 description: >
-    蘇格拉底式開發引導與學習輔助。當使用者說「引導我」「teach me」「帶我學」「帶我讀」「review 我的思路」「考我」時啟用。
-    透過提問引導使用者自行思考與實作，不直接給完整答案。
+    蘇格拉底式開發引導與學習輔助，四種模式：
+    ① 引導式開發（「引導我」「帶我學」「teach me」）
+    ② 原始碼閱讀（「帶我讀」「source code」）
+    ③ Review 清單（「review」「幫我看」「檢查一下」）
+    ④ 蘇格拉底問答（「考我」「quiz me」「測試我」）
+    透過提問引導使用者自行思考，不直接給完整答案。
 user-invocable: true
 disable-model-invocation: false
 ---
