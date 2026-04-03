@@ -32,45 +32,95 @@ for k in keys:
 # 偵測設定檔與變更檔案清單（排除 lock files）
 ls tsconfig*.json tailwind.config* .eslintrc* eslint.config* nuxt.config* next.config* vite.config* Dockerfile* docker-compose* .github/workflows/*.yml .gitlab-ci.yml Makefile 2>/dev/null
 echo "===CHANGED_FILES==="
-git diff --staged --name-only \
-  -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' \
-     ':!*.lock' ':!composer.lock' ':!Gemfile.lock' 2>/dev/null || \
-git diff HEAD~1 HEAD --name-only \
-  -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' \
-     ':!*.lock' ':!composer.lock' ':!Gemfile.lock' 2>/dev/null
+# 三段偵測：Staged > Branch > LastCommit
+_STAGED=$(git diff --staged --stat 2>/dev/null)
+_BRANCH=$(git branch --show-current 2>/dev/null)
+if [ -n "$_STAGED" ]; then
+  git diff --staged --name-only \
+    -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' \
+       ':!*.lock' ':!composer.lock' ':!Gemfile.lock' 2>/dev/null
+elif [ -n "$_BRANCH" ] && [ "$_BRANCH" != "main" ] && [ "$_BRANCH" != "master" ] && [ "$_BRANCH" != "develop" ]; then
+  _BASE=$(git merge-base HEAD origin/main 2>/dev/null \
+    || git merge-base HEAD main 2>/dev/null \
+    || git merge-base HEAD origin/master 2>/dev/null \
+    || git merge-base HEAD master 2>/dev/null \
+    || git merge-base HEAD origin/develop 2>/dev/null \
+    || git merge-base HEAD develop 2>/dev/null)
+  _AHEAD=$(git rev-list ${_BASE}..HEAD --count 2>/dev/null || echo 0)
+  if [ -n "$_BASE" ] && [ "$_AHEAD" -gt 0 ]; then
+    git diff ${_BASE}...HEAD --name-only \
+      -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' \
+         ':!*.lock' ':!composer.lock' ':!Gemfile.lock' 2>/dev/null
+  else
+    git diff HEAD~1 HEAD --name-only \
+      -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' \
+         ':!*.lock' ':!composer.lock' ':!Gemfile.lock' 2>/dev/null
+  fi
+else
+  git diff HEAD~1 HEAD --name-only \
+    -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' \
+       ':!*.lock' ':!composer.lock' ':!Gemfile.lock' 2>/dev/null
+fi
 ```
 
 ```bash
-# 判斷變更模式，取得 stat 與 diff 行數（排除 lock files）
+# 三段偵測：Staged > Branch > LastCommit
+EXCL="-- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' ':!*.lock' ':!composer.lock' ':!Gemfile.lock'"
 STAGED=$(git diff --staged --stat 2>/dev/null)
+CURRENT_BRANCH=$(git branch --show-current 2>/dev/null)
+
 if [ -n "$STAGED" ]; then
   echo "===MODE:Staged==="
-  git diff --staged --stat \
-    -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' \
-       ':!*.lock' ':!composer.lock' ':!Gemfile.lock'
+  eval "git diff --staged --stat $EXCL"
   echo "===DIFF_LINES==="
-  git diff --staged \
-    -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' \
-       ':!*.lock' ':!composer.lock' ':!Gemfile.lock' | wc -l | tr -d ' '
+  eval "git diff --staged $EXCL" | wc -l | tr -d ' '
   echo "===DIFF_START==="
-  git diff --staged \
-    -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' \
-       ':!*.lock' ':!composer.lock' ':!Gemfile.lock'
+  eval "git diff --staged $EXCL"
+
+elif [ -n "$CURRENT_BRANCH" ] && [ "$CURRENT_BRANCH" != "main" ] && [ "$CURRENT_BRANCH" != "master" ] && [ "$CURRENT_BRANCH" != "develop" ]; then
+  BASE=$(git merge-base HEAD origin/main 2>/dev/null \
+    || git merge-base HEAD main 2>/dev/null \
+    || git merge-base HEAD origin/master 2>/dev/null \
+    || git merge-base HEAD master 2>/dev/null \
+    || git merge-base HEAD origin/develop 2>/dev/null \
+    || git merge-base HEAD develop 2>/dev/null)
+  AHEAD=$(git rev-list ${BASE}..HEAD --count 2>/dev/null || echo 0)
+  if [ -n "$BASE" ] && [ "$AHEAD" -gt 0 ]; then
+    BASE_BRANCH=$(git name-rev --name-only "$BASE" 2>/dev/null | sed 's|remotes/origin/||' | sed 's|~.*||')
+    echo "===MODE:Branch==="
+    echo "===BRANCH_INFO==="
+    echo "branch: $CURRENT_BRANCH"
+    echo "base: $BASE_BRANCH"
+    echo "base_commit: $(echo $BASE | cut -c1-7)"
+    echo "commits_ahead: $AHEAD"
+    echo "===COMMIT_LIST==="
+    git log ${BASE}..HEAD --pretty=format:"%h %s" --no-merges
+    echo ""
+    eval "git diff ${BASE}...HEAD --stat $EXCL"
+    echo "===DIFF_LINES==="
+    eval "git diff ${BASE}...HEAD $EXCL" | wc -l | tr -d ' '
+    echo "===DIFF_START==="
+    eval "git diff ${BASE}...HEAD $EXCL"
+  else
+    echo "===MODE:LastCommit==="
+    git log -1 --pretty=format:"commit %H%nauthor: %an%ndate: %ci%nmessage: %s"
+    echo ""
+    eval "git diff HEAD~1 HEAD --stat $EXCL"
+    echo "===DIFF_LINES==="
+    eval "git diff HEAD~1 HEAD $EXCL" | wc -l | tr -d ' '
+    echo "===DIFF_START==="
+    eval "git diff HEAD~1 HEAD $EXCL"
+  fi
+
 else
   echo "===MODE:LastCommit==="
   git log -1 --pretty=format:"commit %H%nauthor: %an%ndate: %ci%nmessage: %s"
   echo ""
-  git diff HEAD~1 HEAD --stat \
-    -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' \
-       ':!*.lock' ':!composer.lock' ':!Gemfile.lock'
+  eval "git diff HEAD~1 HEAD --stat $EXCL"
   echo "===DIFF_LINES==="
-  git diff HEAD~1 HEAD \
-    -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' \
-       ':!*.lock' ':!composer.lock' ':!Gemfile.lock' | wc -l | tr -d ' '
+  eval "git diff HEAD~1 HEAD $EXCL" | wc -l | tr -d ' '
   echo "===DIFF_START==="
-  git diff HEAD~1 HEAD \
-    -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' \
-       ':!*.lock' ':!composer.lock' ':!Gemfile.lock'
+  eval "git diff HEAD~1 HEAD $EXCL"
 fi
 ```
 
@@ -89,7 +139,7 @@ fi
 **> 800 行時的暫停訊息**（從 `--stat` 輸出列出前 5 個最大檔案）：
 
 ```
-⚠️ Diff 規模過大（N 行）
+⚠️ Diff 規模過大（N 行{Branch 模式時加上：，橫跨 M 個 commits}）
 
 超過建議閾值（800 行），強制審查可能遺漏細節。
 
@@ -137,10 +187,29 @@ fi
 執行以下 Bash，**同時**取得各域別過濾 diff 與變更檔案內容：
 
 ```bash
-# 判斷 diff 指令基底
+# 三段偵測：Staged > Branch > LastCommit
 STAGED=$(git diff --staged --stat 2>/dev/null)
-[ -n "$STAGED" ] && DCMD="git diff --staged" || DCMD="git diff HEAD~1 HEAD"
+CURRENT_BRANCH=$(git branch --show-current 2>/dev/null)
 EXCL="':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' ':!*.lock' ':!composer.lock' ':!Gemfile.lock'"
+
+if [ -n "$STAGED" ]; then
+  DCMD="git diff --staged"
+elif [ -n "$CURRENT_BRANCH" ] && [ "$CURRENT_BRANCH" != "main" ] && [ "$CURRENT_BRANCH" != "master" ] && [ "$CURRENT_BRANCH" != "develop" ]; then
+  _BASE=$(git merge-base HEAD origin/main 2>/dev/null \
+    || git merge-base HEAD main 2>/dev/null \
+    || git merge-base HEAD origin/master 2>/dev/null \
+    || git merge-base HEAD master 2>/dev/null \
+    || git merge-base HEAD origin/develop 2>/dev/null \
+    || git merge-base HEAD develop 2>/dev/null)
+  _AHEAD=$(git rev-list ${_BASE}..HEAD --count 2>/dev/null || echo 0)
+  if [ -n "$_BASE" ] && [ "$_AHEAD" -gt 0 ]; then
+    DCMD="git diff ${_BASE}...HEAD"
+  else
+    DCMD="git diff HEAD~1 HEAD"
+  fi
+else
+  DCMD="git diff HEAD~1 HEAD"
+fi
 
 # Vue 域別 diff（.vue + nuxt/vite config）
 echo "===DOMAIN_DIFF:vue==="
@@ -169,8 +238,28 @@ eval "$DCMD -- '*.svelte' '*.astro' $EXCL" 2>/dev/null
 
 ```bash
 # 預讀所有變更檔案內容（< 30KB，排除生成/二進位檔）
+# 三段偵測：Staged > Branch > LastCommit
 STAGED=$(git diff --staged --stat 2>/dev/null)
-[ -n "$STAGED" ] && FCMD="git diff --staged --name-only" || FCMD="git diff HEAD~1 HEAD --name-only"
+CURRENT_BRANCH=$(git branch --show-current 2>/dev/null)
+
+if [ -n "$STAGED" ]; then
+  FCMD="git diff --staged --name-only"
+elif [ -n "$CURRENT_BRANCH" ] && [ "$CURRENT_BRANCH" != "main" ] && [ "$CURRENT_BRANCH" != "master" ] && [ "$CURRENT_BRANCH" != "develop" ]; then
+  _BASE=$(git merge-base HEAD origin/main 2>/dev/null \
+    || git merge-base HEAD main 2>/dev/null \
+    || git merge-base HEAD origin/master 2>/dev/null \
+    || git merge-base HEAD master 2>/dev/null \
+    || git merge-base HEAD origin/develop 2>/dev/null \
+    || git merge-base HEAD develop 2>/dev/null)
+  _AHEAD=$(git rev-list ${_BASE}..HEAD --count 2>/dev/null || echo 0)
+  if [ -n "$_BASE" ] && [ "$_AHEAD" -gt 0 ]; then
+    FCMD="git diff ${_BASE}...HEAD --name-only"
+  else
+    FCMD="git diff HEAD~1 HEAD --name-only"
+  fi
+else
+  FCMD="git diff HEAD~1 HEAD --name-only"
+fi
 eval "$FCMD -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' ':!*.lock' ':!*.min.js' ':!*.d.ts'" 2>/dev/null | \
 while IFS= read -r f; do
   [ -f "$f" ] || continue
@@ -203,7 +292,12 @@ done
 - 品質工具：{列出偵測到的設定檔}
 
 ### 變更模式
-{Staged / Last Commit}（commit hash: {7 碼}，message: {訊息}）
+依偵測結果填入以下其中一種：
+- Staged：`Staged（N files staged）`
+- Last Commit：`Last Commit（commit: {7 碼}，message: {訊息}）`
+- Branch：`Branch（{current_branch} ← {base_branch}，{N} commits）`
+  Branch 模式時另附 commit 清單（來自 ===COMMIT_LIST===）：
+  `{hash} {message}` 逐行列出
 
 ### 異動統計
 {git diff --stat 的完整輸出（已排除 lock files）}
@@ -236,9 +330,11 @@ done
 #### 最終輸出模板
 
 ```
-## 📋 Code Review：{hash 前 7 碼} — {commit message}
+## 📋 Code Review：{依模式填入}
+- Staged / Last Commit：`{hash 前 7 碼} — {commit message}`
+- Branch：`{branch_name}（{N} commits from {base_branch}）`
 
-> 📂 模式：{Last Commit / Staged} ｜ 📅 日期：{date} ｜ 🏷️ 技術棧：{frameworks}
+> 📂 模式：{Last Commit / Staged / Branch（{branch} ← {base}）} ｜ 📅 {Staged/LastCommit 填 date；Branch 填最早～最新 commit 日期} ｜ 🏷️ 技術棧：{frameworks}
 
 ---
 

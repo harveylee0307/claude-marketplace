@@ -1,6 +1,16 @@
 # commit-review
 
-針對 git staged changes 或最新 commit 進行多框架並行 code review。
+針對 git staged changes、最新 commit 或整個 feature branch 進行多框架並行 code review。
+
+## Review 模式
+
+| 模式 | 觸發條件 | diff 範圍 |
+|------|---------|-----------|
+| **Staged** | 有 staged 變更 | `git diff --staged` |
+| **Branch** | 無 staged，目前分支 ≠ main/master/develop | `git diff <merge-base>...HEAD`（涵蓋整個分支所有 commit） |
+| **Last Commit** | 無 staged，在 main/master/develop 上 | `git diff HEAD~1 HEAD` |
+
+自動偵測，無需手動指定。Branch 模式為 feature branch 上的預設，能抓到跨 commit 的連鎖問題（如改 A 壞 C）。
 
 ## 使用方式
 

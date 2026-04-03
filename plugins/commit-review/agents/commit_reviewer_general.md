@@ -20,11 +20,37 @@ tools: Bash, Read, Glob
 
 若主控未提供 diff（直接被使用者召喚），則自行取得：
 ```bash
+# 三段偵測：Staged > Branch > LastCommit
 STAGED=$(git diff --staged 2>/dev/null)
+CURRENT_BRANCH=$(git branch --show-current 2>/dev/null)
+
 if [ -n "$STAGED" ]; then
   echo "===MODE:Staged==="
   git diff --staged --stat
   git diff --staged
+
+elif [ -n "$CURRENT_BRANCH" ] && [ "$CURRENT_BRANCH" != "main" ] && [ "$CURRENT_BRANCH" != "master" ] && [ "$CURRENT_BRANCH" != "develop" ]; then
+  BASE=$(git merge-base HEAD origin/main 2>/dev/null \
+    || git merge-base HEAD main 2>/dev/null \
+    || git merge-base HEAD origin/master 2>/dev/null \
+    || git merge-base HEAD master 2>/dev/null \
+    || git merge-base HEAD origin/develop 2>/dev/null \
+    || git merge-base HEAD develop 2>/dev/null)
+  AHEAD=$(git rev-list ${BASE}..HEAD --count 2>/dev/null || echo 0)
+  if [ -n "$BASE" ] && [ "$AHEAD" -gt 0 ]; then
+    echo "===MODE:Branch==="
+    echo "branch: $CURRENT_BRANCH, commits_ahead: $AHEAD"
+    git log ${BASE}..HEAD --pretty=format:"%h %s" --no-merges
+    echo ""
+    git diff ${BASE}...HEAD --stat
+    git diff ${BASE}...HEAD
+  else
+    echo "===MODE:LastCommit==="
+    git log -1 --pretty=format:"commit %H%ndate: %ci%nmessage: %s"
+    git diff HEAD~1 HEAD --stat
+    git diff HEAD~1 HEAD
+  fi
+
 else
   echo "===MODE:LastCommit==="
   git log -1 --pretty=format:"commit %H%ndate: %ci%nmessage: %s"

@@ -1,6 +1,6 @@
 ---
 name: commit-review
-description: 針對當前 git commit 或 staged 變更進行前端 code review，委派給 commit-reviewer agent 執行。
+description: 針對當前 git staged 變更、最新 commit 或整個 feature branch 進行 code review，自動偵測模式，委派給 commit-reviewer agent 執行。
 user-invocable: true
 disable-model-invocation: false
 ---
@@ -9,4 +9,4 @@ disable-model-invocation: false
 
 直接呼叫 Agent tool，subagent_type 設為 `commit-reviewer`，prompt 如下：
 
-> 請針對當前 git 的 staged 變更或最新 commit 進行完整的 code review，輸出問題清單並依優先度分級。
+> 請針對當前 git 的 staged 變更、最新 commit 或整個 feature branch 進行完整的 code review，自動偵測適合的模式，輸出問題清單並依優先度分級。
