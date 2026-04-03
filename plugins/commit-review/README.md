@@ -14,13 +14,20 @@
 
 ## 使用方式
 
-在 Claude Code 對話中說：
+在 Claude Code 對話中說（自動偵測模式）：
 
-- 「review 這次 commit」
 - 「幫我 review」
 - 「code review」
-- 「檢查這次改動」
+- 「幫我做 code review」
 - 或使用 `/commit-review` 指令
+
+若要明確指定模式，可使用以下觸發詞：
+
+| 模式 | 觸發詞範例 |
+|------|-----------|
+| **Branch**（整個分支） | 「review 這個分支」「review 整個 branch」「review 這次 PR 的改動」 |
+| **Last Commit**（最新一筆） | 「review 最新 commit」「review 上一個 commit」 |
+| **Staged**（已 staged） | 「review staged 的改動」「commit 前幫我看一下」 |
 
 ## 支援框架
 
