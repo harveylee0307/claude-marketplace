@@ -196,6 +196,8 @@ fi
 
 > 若依賴條件符合但 CHANGED_FILES 內沒有對應副檔名，**不派發**該 agent，避免無效審查。
 
+`commit-reviewer-claude-md` 僅在 Step 2.5 偵測到 `===CLAUDE_MD:*===` 時派發；輸出為 `===NO_CLAUDE_MD===` 時略過。
+
 ---
 
 ### Step 2.5 — 生成域別 Diff 與預讀變更檔案
@@ -290,6 +292,21 @@ while IFS= read -r f; do
 done
 ```
 
+```bash
+# CLAUDE.md 偵測（根目錄與子目錄，排除 node_modules / .git，最深 5 層）
+find . -name "CLAUDE.md" \
+  -not -path "*/node_modules/*" \
+  -not -path "*/.git/*" \
+  -maxdepth 5 2>/dev/null | sort | while IFS= read -r f; do
+  echo "===CLAUDE_MD:$f==="
+  cat "$f"
+done
+
+# 若無任何 CLAUDE.md，輸出 sentinel
+[ -z "$(find . -name 'CLAUDE.md' -not -path '*/node_modules/*' -not -path '*/.git/*' -maxdepth 5 2>/dev/null)" ] \
+  && echo "===NO_CLAUDE_MD==="
+```
+
 ---
 
 ### Step 3 — 組裝標準化 prompt 並派發
@@ -325,9 +342,15 @@ done
 ### 預讀檔案內容
 {===FILE_START:path=== 至 ===FILE_END=== 之間的內容，僅含與本域相關的檔案}
 優先使用此處內容進行分析，僅在需要查看未提供的鄰近檔案（import 來源、型別定義）時才使用 Read tool。
+
+### CLAUDE.md 規範內容
+{僅傳給 commit-reviewer-claude-md；其他 agent 不含此 section}
+{所有 ===CLAUDE_MD:path=== 標記的內容，依路徑逐一列出；若為 ===NO_CLAUDE_MD=== 則此 section 不存在}
 ```
 
-**必須將 general + 領域 agent 以並行方式同時派發**（單一訊息多個 Agent tool call）。
+**必須將 general + 領域 agent + claude-md agent（若有 CLAUDE.md）以並行方式同時派發**（單一訊息多個 Agent tool call）。
+
+> `commit-reviewer-claude-md` 的 prompt：完整 diff + 預讀檔案 + CLAUDE.md 規範內容。其他 agent 不傳 CLAUDE.md 規範內容，節省 token。
 
 > **早期中止**：領域 agent 收到空的「本域相關 Diff」時，立即回傳「— 無域內變更」，不執行任何分析，節省 token。
 
@@ -337,11 +360,12 @@ done
 
 收到所有子 agent 結果後，彙整為統一報告：
 
-1. 忽略回傳「— 無域內變更」的 agent
+1. 忽略回傳「— 無域內變更」或「— 無 CLAUDE.md，略過規範審查」的 agent
 2. 合併所有 findings，按 severity 重新分組（🚨 → 🔴 → 🟡 → 🟢）
 3. 相同問題去重（general 與領域 agent 可能重複發現同一問題）
 4. 計算各 severity 數量，填入摘要表
 5. 判定 Merge 建議：有 🚨 或 🔴 → ⛔；僅 🟡 → ⚠️；僅 🟢 或無問題 → ✅
+6. **CLAUDE.md findings 排列優先度最低**：同 severity 層中排在其他 agent findings 之後；達到 15 項上限時優先移除 `[規範]` findings
 
 #### 最終輸出模板
 
@@ -408,7 +432,21 @@ done
 \`\`\`
 ```
 
-分類 Tag：`[安全]` `[型別]` `[邏輯]` `[錯誤處理]` `[命名]` `[架構]` `[效能]` `[A11y]` `[測試]` `[依賴]` `[Breaking]` `[樣式]` `[Infra]`
+分類 Tag：`[安全]` `[型別]` `[邏輯]` `[錯誤處理]` `[命名]` `[架構]` `[效能]` `[A11y]` `[測試]` `[依賴]` `[Breaking]` `[樣式]` `[Infra]` `[規範]`
 
 問題點合計最多 **15 項**（general + 領域合併後），依 severity 排序。
 **不評論**未被本次 commit 動到的既有程式碼。
+
+#### Branch 模式後的延伸動作
+
+僅當模式為 **Branch** 時，在最終報告的 `⚠️ 脈絡推斷提醒` 區塊之後附加以下固定文字：
+
+```
+---
+
+### 📋 產生工作文件
+
+已完成 Branch `{branch_name}` 的 code review。需要同步產生這個分支的工作紀錄嗎？
+
+回覆 **「是」** 或 **「產生工作日誌」** 即可啟動 `branch-log` agent，選擇輸出格式（技術交接文件 / 工作日誌 / 分支摘要）並寫入 `logs/` 目錄。
+```

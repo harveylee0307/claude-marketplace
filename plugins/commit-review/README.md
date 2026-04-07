@@ -52,6 +52,15 @@
 | 🟡 Should Fix | 缺少測試、可維護性問題、不佳實踐 | 建議修正 |
 | 🟢 Nitpick | 命名微調、風格偏好、小優化 | 可選 |
 
+## CLAUDE.md 規範審查
+
+若專案中存在 `CLAUDE.md`，主控會自動偵測並啟用 `commit-reviewer-claude-md` agent，檢查本次變更是否符合專案的 Claude 規範。
+
+- **自動偵測**：根目錄至最深 5 層目錄的所有 `CLAUDE.md`（排除 `node_modules`、`.git`）
+- **智慧過濾**：僅對照可在 code review 情境適用的規則（命名慣例、禁止/必要 pattern、架構決策），自動略過操作指引類指令（「ask before creating files」等）
+- **專屬 tag**：`[規範]`，findings 最多 5 項，排列優先度低於通用工程 findings
+- **無 CLAUDE.md 時完全跳過**，不影響效能與 token 用量
+
 ## 與類似工具的差異
 
 ### vs `/simplify`（內建）
@@ -84,6 +93,10 @@
 
 同 plugin 內附帶 `branch-log` agent，用於彙整整個 branch 的多 commit 變更，產出交接文件或工作日誌（≠ commit review）。
 
+### 自動整合
+
+完成 **Branch 模式** review 後，主控會在報告末尾自動提示是否產生工作文件，無需手動觸發。
+
 觸發方式：
 
 - 「產生工作日誌」
@@ -111,4 +124,5 @@
 - `commit-reviewer-node` — Node.js 後端專屬
 - `commit-reviewer-infra` — Shell / Docker / CI-CD 專屬
 - `commit-reviewer-common` — Svelte / Astro / 其他前端框架
+- `commit-reviewer-claude-md` — CLAUDE.md 規範審查（偵測到 CLAUDE.md 時自動派發）
 - `branch-log` — 分支摘要與交接文件
