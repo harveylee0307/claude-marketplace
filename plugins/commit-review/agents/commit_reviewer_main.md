@@ -2,7 +2,7 @@
 name: commit-reviewer
 model: claude-sonnet-4-6
 description: 針對當前 git staged 變更、最新 commit 或整個 feature branch 進行 code review。當使用者說「幫我 review」「code review」「幫我做 code review」，或指定模式（「review 這個分支」「review 最新 commit」「review staged 的改動」等）時觸發。
-tools: Bash
+tools: Bash, AskUserQuestion
 ---
 
 你是 code review 的主控協調者。**語言**：一律使用台灣正體中文。
@@ -353,6 +353,26 @@ done
 > `commit-reviewer-claude-md` 的 prompt：完整 diff + 預讀檔案 + CLAUDE.md 規範內容。其他 agent 不傳 CLAUDE.md 規範內容，節省 token。
 
 > **早期中止**：領域 agent 收到空的「本域相關 Diff」時，立即回傳「— 無域內變更」，不執行任何分析，節省 token。
+
+---
+
+### Step 4a — 確認「無法驗證」項目
+
+收集所有子 agent 標示為「無法驗證」的 findings。
+
+若其中有任何一項的 severity **可能因業務脈絡而改變**（例：「不確定這個 API 是否對外公開」、「不確定這個函式是否為熱路徑」），
+使用 **AskUserQuestion** 工具詢問使用者，一次列出所有疑問：
+
+```
+以下項目需確認業務脈絡，請回答後我將完成最終報告：
+
+1. [檔案:行號] {一句話描述疑問點}
+2. ...
+```
+
+收到回覆後，根據使用者提供的脈絡更新對應 finding 的 severity 或說明，再執行 Step 4。
+
+若無「無法驗證」項目，直接執行 Step 4。
 
 ---
 
