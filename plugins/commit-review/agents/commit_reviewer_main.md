@@ -80,18 +80,18 @@ fi
 ```
 
 ```bash
-# 三段偵測：Staged > Branch > LastCommit
-EXCL="-- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' ':!*.lock' ':!composer.lock' ':!Gemfile.lock'"
+# 三段偵測：Staged > Branch > LastCommit（無 eval，使用陣列展開）
+EXCL=(-- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' ':!*.lock' ':!composer.lock' ':!Gemfile.lock')
 STAGED=$(git diff --staged --stat 2>/dev/null)
 CURRENT_BRANCH=$(git branch --show-current 2>/dev/null)
 
 if [ -n "$STAGED" ]; then
   echo "===MODE:Staged==="
-  eval "git diff --staged --stat $EXCL"
+  git diff --staged --stat "${EXCL[@]}"
   echo "===DIFF_LINES==="
-  eval "git diff --staged $EXCL" | wc -l | tr -d ' '
+  git diff --staged "${EXCL[@]}" | wc -l | tr -d ' '
   echo "===DIFF_START==="
-  eval "git diff --staged $EXCL"
+  git diff --staged "${EXCL[@]}"
 
 elif [ -n "$CURRENT_BRANCH" ] && [ "$CURRENT_BRANCH" != "main" ] && [ "$CURRENT_BRANCH" != "master" ] && [ "$CURRENT_BRANCH" != "develop" ]; then
   BASE=$(git merge-base HEAD origin/main 2>/dev/null \
@@ -112,31 +112,31 @@ elif [ -n "$CURRENT_BRANCH" ] && [ "$CURRENT_BRANCH" != "main" ] && [ "$CURRENT_
     echo "===COMMIT_LIST==="
     git log ${BASE}..HEAD --pretty=format:"%h %s" --no-merges
     echo ""
-    eval "git diff ${BASE}...HEAD --stat $EXCL"
+    git diff "${BASE}...HEAD" --stat "${EXCL[@]}"
     echo "===DIFF_LINES==="
-    eval "git diff ${BASE}...HEAD $EXCL" | wc -l | tr -d ' '
+    git diff "${BASE}...HEAD" "${EXCL[@]}" | wc -l | tr -d ' '
     echo "===DIFF_START==="
-    eval "git diff ${BASE}...HEAD $EXCL"
+    git diff "${BASE}...HEAD" "${EXCL[@]}"
   else
     echo "===MODE:LastCommit==="
     git log -1 --pretty=format:"commit %H%nauthor: %an%ndate: %ci%nmessage: %s"
     echo ""
-    eval "git diff HEAD~1 HEAD --stat $EXCL"
+    git diff HEAD~1 HEAD --stat "${EXCL[@]}"
     echo "===DIFF_LINES==="
-    eval "git diff HEAD~1 HEAD $EXCL" | wc -l | tr -d ' '
+    git diff HEAD~1 HEAD "${EXCL[@]}" | wc -l | tr -d ' '
     echo "===DIFF_START==="
-    eval "git diff HEAD~1 HEAD $EXCL"
+    git diff HEAD~1 HEAD "${EXCL[@]}"
   fi
 
 else
   echo "===MODE:LastCommit==="
   git log -1 --pretty=format:"commit %H%nauthor: %an%ndate: %ci%nmessage: %s"
   echo ""
-  eval "git diff HEAD~1 HEAD --stat $EXCL"
+  git diff HEAD~1 HEAD --stat "${EXCL[@]}"
   echo "===DIFF_LINES==="
-  eval "git diff HEAD~1 HEAD $EXCL" | wc -l | tr -d ' '
+  git diff HEAD~1 HEAD "${EXCL[@]}" | wc -l | tr -d ' '
   echo "===DIFF_START==="
-  eval "git diff HEAD~1 HEAD $EXCL"
+  git diff HEAD~1 HEAD "${EXCL[@]}"
 fi
 ```
 
@@ -202,83 +202,60 @@ fi
 
 ### Step 2.5 — 生成域別 Diff 與預讀變更檔案
 
-執行以下 Bash，**同時**取得各域別過濾 diff 與變更檔案內容：
+執行以下 Bash，**同時**取得各域別過濾 diff、變更檔案內容與 CLAUDE.md（合併為一次偵測，無 eval）：
 
 ```bash
-# 三段偵測：Staged > Branch > LastCommit
+# 偵測模式（一次，供域別 diff 與檔案讀取共用）
 STAGED=$(git diff --staged --stat 2>/dev/null)
 CURRENT_BRANCH=$(git branch --show-current 2>/dev/null)
-EXCL="':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' ':!*.lock' ':!composer.lock' ':!Gemfile.lock'"
+BASE=""
+AHEAD=0
 
-if [ -n "$STAGED" ]; then
-  DCMD="git diff --staged"
-elif [ -n "$CURRENT_BRANCH" ] && [ "$CURRENT_BRANCH" != "main" ] && [ "$CURRENT_BRANCH" != "master" ] && [ "$CURRENT_BRANCH" != "develop" ]; then
-  _BASE=$(git merge-base HEAD origin/main 2>/dev/null \
+if [ -z "$STAGED" ] && [ -n "$CURRENT_BRANCH" ] && \
+   [ "$CURRENT_BRANCH" != "main" ] && [ "$CURRENT_BRANCH" != "master" ] && [ "$CURRENT_BRANCH" != "develop" ]; then
+  BASE=$(git merge-base HEAD origin/main 2>/dev/null \
     || git merge-base HEAD main 2>/dev/null \
     || git merge-base HEAD origin/master 2>/dev/null \
     || git merge-base HEAD master 2>/dev/null \
     || git merge-base HEAD origin/develop 2>/dev/null \
     || git merge-base HEAD develop 2>/dev/null)
-  _AHEAD=$(git rev-list ${_BASE}..HEAD --count 2>/dev/null || echo 0)
-  if [ -n "$_BASE" ] && [ "$_AHEAD" -gt 0 ]; then
-    DCMD="git diff ${_BASE}...HEAD"
-  else
-    DCMD="git diff HEAD~1 HEAD"
-  fi
-else
-  DCMD="git diff HEAD~1 HEAD"
+  AHEAD=$(git rev-list "${BASE}..HEAD" --count 2>/dev/null || echo 0)
 fi
 
-# Vue 域別 diff（.vue + nuxt/vite config）
+# 統一 diff 函式（依 Step 1 結果，無 eval）
+gdiff() {
+  if [ -n "$STAGED" ]; then
+    git diff --staged "$@"
+  elif [ -n "$BASE" ] && [ "$AHEAD" -gt 0 ]; then
+    git diff "${BASE}...HEAD" "$@"
+  else
+    git diff HEAD~1 HEAD "$@"
+  fi
+}
+
+EXCL=(':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' ':!*.lock' ':!composer.lock' ':!Gemfile.lock')
+
+# 域別 diff
 echo "===DOMAIN_DIFF:vue==="
-eval "$DCMD -- '*.vue' 'nuxt.config.*' 'vite.config.*' $EXCL" 2>/dev/null
+gdiff -- '*.vue' 'nuxt.config.*' 'vite.config.*' "${EXCL[@]}" 2>/dev/null
 
-# React 域別 diff（.tsx/.jsx + next config）
 echo "===DOMAIN_DIFF:react==="
-eval "$DCMD -- '*.tsx' '*.jsx' 'next.config.*' $EXCL" 2>/dev/null
+gdiff -- '*.tsx' '*.jsx' 'next.config.*' "${EXCL[@]}" 2>/dev/null
 
-# Angular 域別 diff（*.component/module/service/directive/pipe/guard）
 echo "===DOMAIN_DIFF:angular==="
-eval "$DCMD -- '*.component.ts' '*.module.ts' '*.service.ts' '*.directive.ts' '*.pipe.ts' '*.guard.ts' '*.interceptor.ts' $EXCL" 2>/dev/null
+gdiff -- '*.component.ts' '*.module.ts' '*.service.ts' '*.directive.ts' '*.pipe.ts' '*.guard.ts' '*.interceptor.ts' "${EXCL[@]}" 2>/dev/null
 
-# Node 域別 diff（server-side 路徑）
 echo "===DOMAIN_DIFF:node==="
-eval "$DCMD -- 'src/routes/**' 'src/controllers/**' 'src/services/**' 'src/middleware/**' 'src/api/**' 'routes/**' 'controllers/**' 'api/**' 'server/**' $EXCL" 2>/dev/null
+gdiff -- 'src/routes/**' 'src/controllers/**' 'src/services/**' 'src/middleware/**' 'src/api/**' 'routes/**' 'controllers/**' 'api/**' 'server/**' "${EXCL[@]}" 2>/dev/null
 
-# Infra 域別 diff
 echo "===DOMAIN_DIFF:infra==="
-eval "$DCMD -- '*.sh' 'Dockerfile*' 'docker-compose*' '.github/**' '.gitlab-ci.yml' 'Makefile' '*.conf' '.env*' $EXCL" 2>/dev/null
+gdiff -- '*.sh' 'Dockerfile*' 'docker-compose*' '.github/**' '.gitlab-ci.yml' 'Makefile' '*.conf' '.env*' "${EXCL[@]}" 2>/dev/null
 
-# Svelte/Astro 域別 diff
 echo "===DOMAIN_DIFF:common==="
-eval "$DCMD -- '*.svelte' '*.astro' $EXCL" 2>/dev/null
-```
+gdiff -- '*.svelte' '*.astro' "${EXCL[@]}" 2>/dev/null
 
-```bash
 # 預讀所有變更檔案內容（< 30KB，排除生成/二進位檔）
-# 三段偵測：Staged > Branch > LastCommit
-STAGED=$(git diff --staged --stat 2>/dev/null)
-CURRENT_BRANCH=$(git branch --show-current 2>/dev/null)
-
-if [ -n "$STAGED" ]; then
-  FCMD="git diff --staged --name-only"
-elif [ -n "$CURRENT_BRANCH" ] && [ "$CURRENT_BRANCH" != "main" ] && [ "$CURRENT_BRANCH" != "master" ] && [ "$CURRENT_BRANCH" != "develop" ]; then
-  _BASE=$(git merge-base HEAD origin/main 2>/dev/null \
-    || git merge-base HEAD main 2>/dev/null \
-    || git merge-base HEAD origin/master 2>/dev/null \
-    || git merge-base HEAD master 2>/dev/null \
-    || git merge-base HEAD origin/develop 2>/dev/null \
-    || git merge-base HEAD develop 2>/dev/null)
-  _AHEAD=$(git rev-list ${_BASE}..HEAD --count 2>/dev/null || echo 0)
-  if [ -n "$_BASE" ] && [ "$_AHEAD" -gt 0 ]; then
-    FCMD="git diff ${_BASE}...HEAD --name-only"
-  else
-    FCMD="git diff HEAD~1 HEAD --name-only"
-  fi
-else
-  FCMD="git diff HEAD~1 HEAD --name-only"
-fi
-eval "$FCMD -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' ':!*.lock' ':!*.min.js' ':!*.d.ts'" 2>/dev/null | \
+gdiff --name-only -- . ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' ':!*.lock' ':!*.min.js' ':!*.d.ts' 2>/dev/null | \
 while IFS= read -r f; do
   [ -f "$f" ] || continue
   SIZE=$(wc -c < "$f" 2>/dev/null || echo 99999)
@@ -290,9 +267,7 @@ while IFS= read -r f; do
     printf "\n===FILE_SKIP:%s (%d bytes, 超過 30KB)===\n" "$f" "$SIZE"
   fi
 done
-```
 
-```bash
 # CLAUDE.md 偵測（根目錄與子目錄，排除 node_modules / .git，最深 5 層）
 find . -name "CLAUDE.md" \
   -not -path "*/node_modules/*" \
@@ -302,7 +277,6 @@ find . -name "CLAUDE.md" \
   cat "$f"
 done
 
-# 若無任何 CLAUDE.md，輸出 sentinel
 [ -z "$(find . -name 'CLAUDE.md' -not -path '*/node_modules/*' -not -path '*/.git/*' -maxdepth 5 2>/dev/null)" ] \
   && echo "===NO_CLAUDE_MD==="
 ```
