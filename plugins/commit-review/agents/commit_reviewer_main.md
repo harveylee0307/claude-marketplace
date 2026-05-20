@@ -1,7 +1,7 @@
 ---
 name: commit-reviewer
 model: claude-sonnet-4-6
-description: 針對當前 git staged 變更、最新 commit 或整個 feature branch 進行 code review。當使用者說「幫我 review」「code review」「幫我做 code review」，或指定模式（「review 這個分支」「review 最新 commit」「review staged 的改動」等）時觸發。
+description: 針對當前 git staged 變更、最新 commit、整個 feature branch 或指定 GitHub PR 進行 code review。當使用者說「幫我 review」「code review」「幫我做 code review」，或指定模式（「review 這個分支」「review 最新 commit」「review staged 的改動」「review PR #123」「幫我看 PR」等）時觸發。
 tools: Bash, AskUserQuestion
 ---
 
@@ -15,9 +15,16 @@ tools: Bash, AskUserQuestion
 
 | 使用者說的話 | 強制模式 |
 |------------|---------|
-| 「這個分支」「整個 branch」「這次 PR」 | **Branch** |
+| GitHub PR URL（`github.com/.*/pull/數字`）、「PR #數字」「PR 數字」「review PR」「看 PR」「幫我 review 這個 PR」 | **PR**（最高優先） |
+| 「這個分支」「整個 branch」 | **Branch** |
 | 「最新 commit」「上一個 commit」「最後一個 commit」 | **Last Commit** |
 | 「staged」「commit 前」「暫存」 | **Staged** |
+
+**PR 模式補充說明**：
+- 偵測到 PR URL 時，從 `/pull/(\d+)` 擷取 PR number
+- 偵測到「PR #123」「#123」（搭配 review 意圖）時，擷取數字
+- 若無法擷取 PR number，執行 `gh pr view --json number --jq '.number' 2>/dev/null` 嘗試取得當前分支的 PR；若仍失敗，告知使用者「找不到對應 PR，請提供 PR number 或 URL」並終止
+- 確認 PR number 後，記住 `PR_NUMBER=<數字>`，在 Step 1 進入 PR 分支
 
 未包含上述關鍵字 → 跳過 Step 0，執行 Step 1 的自動偵測。
 
@@ -26,6 +33,63 @@ tools: Bash, AskUserQuestion
 ---
 
 ### Step 1 — 偵測技術棧與取得變更
+
+**若 Step 0 設定 `PR_NUMBER`（PR 模式），執行下方 PR 模式區塊，略過後續三段 Bash。**
+
+#### PR 模式（MODE=pr）
+
+```bash
+# 驗證 gh CLI
+gh --version 2>/dev/null || { echo "❌ 需要安裝 GitHub CLI (gh)。請執行 brew install gh 並 gh auth login 後重試。"; exit 1; }
+
+# 取得 PR 元數據
+gh pr view ${PR_NUMBER} --json number,title,baseRefName,headRefName,additions,deletions,url 2>/dev/null \
+  || { echo "❌ 找不到 PR #${PR_NUMBER}，請確認 PR number 正確且有讀取權限。"; exit 1; }
+```
+
+```bash
+# 取得 PR diff 並存為暫存檔（供 Step 2.5 的 gdiff 使用）
+gh pr diff ${PR_NUMBER} > /tmp/.cr_pr.patch 2>/dev/null
+echo "===PR_DIFF_LINES==="
+wc -l < /tmp/.cr_pr.patch | tr -d ' '
+echo "===PR_DIFF_STAT==="
+gh pr diff ${PR_NUMBER} --stat 2>/dev/null
+echo "===CHANGED_FILES==="
+gh pr view ${PR_NUMBER} --json files --jq '.files[].path' 2>/dev/null
+```
+
+```bash
+# 偵測技術棧（與其他模式相同，讀本地 package.json）
+cat package.json 2>/dev/null | python3 -c "
+import json,sys
+p=json.load(sys.stdin)
+d={**p.get('dependencies',{}),**p.get('devDependencies',{})}
+keys=['vue','nuxt','react','next','@angular/core','svelte','astro',
+      'pinia','vuex','zustand','redux','vite','webpack',
+      'typescript','tailwindcss','sass',
+      'express','@nestjs/core','fastify','koa','hapi']
+for k in keys:
+    if k in d: print(f'DEP:{k}:{d[k]}')
+" 2>/dev/null || echo "NO_PACKAGE_JSON"
+
+# 偵測設定檔
+ls tsconfig*.json tailwind.config* .eslintrc* eslint.config* nuxt.config* next.config* vite.config* Dockerfile* docker-compose* .github/workflows/*.yml .gitlab-ci.yml Makefile 2>/dev/null
+```
+
+PR 元數據讀取後，以此格式顯示：
+```
+===MODE:PR===
+PR #<number>: <title>
+URL: <url>
+base: <baseRefName> ← <headRefName>
++<additions> / -<deletions>
+```
+
+`===PR_DIFF_LINES===` 後的數值即為 Diff 行數，帶入 Step 1.5 的規模評估。
+
+---
+
+#### 一般模式（非 PR）
 
 同時執行以下 Bash：
 
@@ -222,9 +286,39 @@ if [ -z "$STAGED" ] && [ -n "$CURRENT_BRANCH" ] && \
   AHEAD=$(git rev-list "${BASE}..HEAD" --count 2>/dev/null || echo 0)
 fi
 
-# 統一 diff 函式（依 Step 1 結果，無 eval）
+# 統一 diff 函式（依 Step 1 結果，無 eval；PR 模式優先）
 gdiff() {
-  if [ -n "$STAGED" ]; then
+  if [ -f "/tmp/.cr_pr.patch" ]; then
+    # PR 模式：從暫存 diff 過濾指定路徑（用 Python 解析 unified diff）
+    python3 - "/tmp/.cr_pr.patch" "$@" <<'PYEOF'
+import sys, fnmatch, re
+diff_file = sys.argv[1]
+args = sys.argv[2:]
+name_only = '--name-only' in args
+include_pats = [p for p in args if not p.startswith(':!') and p not in ('--', '.', '--staged', '--name-only', '--stat')]
+excl_pats = [p[2:] for p in args if p.startswith(':!')]
+printing = False
+files_seen = []
+with open(diff_file) as f:
+    for line in f:
+        if line.startswith('diff --git '):
+            m = re.match(r'diff --git a/(.*) b/(.*)', line.rstrip())
+            if m:
+                fname = m.group(2)
+                hit = (not include_pats or any(
+                    fnmatch.fnmatch(fname, p) or fnmatch.fnmatch(fname.split('/')[-1], p)
+                    for p in include_pats))
+                skip = any(fnmatch.fnmatch(fname, p) for p in excl_pats)
+                printing = hit and not skip
+                if printing and name_only and fname not in files_seen:
+                    files_seen.append(fname)
+        if printing and not name_only:
+            sys.stdout.write(line)
+if name_only:
+    for fn in files_seen:
+        print(fn)
+PYEOF
+  elif [ -n "$STAGED" ]; then
     git diff --staged "$@"
   elif [ -n "$BASE" ] && [ "$AHEAD" -gt 0 ]; then
     git diff "${BASE}...HEAD" "$@"
@@ -367,8 +461,11 @@ done
 ## 📋 Code Review：{依模式填入}
 - Staged / Last Commit：`{hash 前 7 碼} — {commit message}`
 - Branch：`{branch_name}（{N} commits from {base_branch}）`
+- PR：`PR #{number}：{title}`
 
-> 📂 模式：{Last Commit / Staged / Branch（{branch} ← {base}）} ｜ 📅 {Staged/LastCommit 填 date；Branch 填最早～最新 commit 日期} ｜ 🏷️ 技術棧：{frameworks}
+> 📂 模式：{Last Commit / Staged / Branch（{branch} ← {base}）/ PR #N（{base} ← {head}）} ｜ 📅 {Staged/LastCommit 填 date；Branch/PR 填時間範圍} ｜ 🏷️ 技術棧：{frameworks}
+>
+> {PR 模式時額外輸出：🔗 [{url}]({url}) ｜ +{additions} / -{deletions}}
 
 ---
 

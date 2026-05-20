@@ -1,9 +1,10 @@
 ---
 name: commit-review
 description: >
-  針對當前 git staged 變更、最新 commit 或整個 feature branch 進行 code review，自動偵測模式，委派給 commit-reviewer agent 執行。
+  針對當前 git staged 變更、最新 commit、整個 feature branch 或指定 GitHub PR 進行 code review，自動偵測模式，委派給 commit-reviewer agent 執行。
   每次 commit 前、PR 前、不確定這次改動品質時，直接觸發取得分級問題清單。
   說「幫我 review」「幫我做 code review」「review 這次 commit」「review 這個 branch」「PR 前幫我看一下」「檢查這次改動」「這個 branch 有沒有問題」都可以啟動。
+  貼上 GitHub PR URL、說「review PR #123」「review 這個 PR」「幫我看 PR #456」「#789 幫我 review」也可以啟動，直接審查指定 PR 的 diff。
 user-invocable: true
 disable-model-invocation: false
 ---
